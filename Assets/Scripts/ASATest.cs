@@ -27,15 +27,17 @@ public class ASATest : MonoBehaviour
 
     private bool isHolding;
     private GameObject currentMovingObject;
-    private Vector3 currentMovingVelocity = Vector3.zero;
 
+    
+    private Vector3 currentMovingVelocity = Vector3.zero;
+    private Vector3 currentCumulativeDelta;
+    private Vector3 lastCumulativeDelta;
 
     void Start()
     {
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
-        
-        recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate);
+        recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate | GestureSettings.Tap);
         recognizer.Tapped += HandleTap;
         recognizer.ManipulationUpdated += OnManupulationUpdated;
         recognizer.ManipulationStarted += OnManipulationStarted;
@@ -49,32 +51,25 @@ public class ASATest : MonoBehaviour
     {
         if (isHolding == true && currentMovingObject != null)
         {
-            currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity * -0.07f;
-            Debug.Log(currentMovingVelocity);
+            currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
+            currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
         }
     }
 
 
     private void OnManupulationUpdated(ManipulationUpdatedEventArgs obj)
     {
+        lastCumulativeDelta = currentCumulativeDelta;
 
         Debug.Log("M-Update");
-        obj.sourcePose.TryGetVelocity(out currentMovingVelocity);
-        Debug.Log(currentMovingVelocity);
+        currentCumulativeDelta = obj.cumulativeDelta;
 
     }
-    private void OnManipulationCompleted(ManipulationCompletedEventArgs obj)
-    {
-        
-        Debug.Log("M-Endding");
-        isHolding = false;
-        currentMovingObject = null;
-
-    }
-
     private void OnManipulationStarted(ManipulationStartedEventArgs obj)
     {
         Debug.Log("M-Startingggggggggggggg");
+        currentCumulativeDelta = Vector3.zero;
+
         Ray HeadRay = new Ray(obj.headPose.position, obj.headPose.forward);
         RaycastHit hit;
         if (Physics.Raycast(HeadRay, out hit) )
@@ -89,8 +84,16 @@ public class ASATest : MonoBehaviour
     }
 
 
-    private void OnManipulationCanceled(ManipulationCanceledEventArgs obj)
+    private void OnManipulationCompleted(ManipulationCompletedEventArgs obj)
     {
+        Debug.Log("M-Ending");
+        isHolding = false;
+        currentMovingObject = null;
+        
+    }
+
+    private void OnManipulationCanceled(ManipulationCanceledEventArgs obj)
+    {  
         Debug.Log("M-Cancel");
         isHolding = false;
         currentMovingObject = null;
@@ -115,13 +118,7 @@ public class ASATest : MonoBehaviour
             Vector3 PointInAir = HeadRay.GetPoint(1.5f);
             GameObject protoCopy = Instantiate(protoObject);
             protoCopy.transform.position = PointInAir;
-            Debug.Log("campos: " + Camera.main.transform.position.ToString());
-            Debug.Log("camforward: " + Camera.main.transform.forward.ToString());
         }
-
-
-
-
 
     private void CloudManager_SessionUpdated(object sender, SessionUpdatedEventArgs args)
     {

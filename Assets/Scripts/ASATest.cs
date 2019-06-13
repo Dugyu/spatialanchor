@@ -9,7 +9,7 @@ using UnityEngine.XR.WSA.Input;
 
 public class ASATest : MonoBehaviour
 {
-
+    // Session Manager Class
     private AnchorWrapper CloudManager;
     public AnchorExchanger anchorExchanger = new AnchorExchanger();
 
@@ -17,22 +17,88 @@ public class ASATest : MonoBehaviour
     private GestureRecognizer recognizer;
     protected bool tapExecuted = false;
 
+    // Spactial Anchor, Watcher
+    public CloudSpatialAnchor currentCloudAnchor;
+    public CloudSpatialAnchorWatcher currentWatcher;
+
+
+    // Input Template
+    public GameObject protoObject;
+
+    private bool isHolding;
+    private GameObject currentMovingObject;
+    private Vector3 currentMovingVelocity = Vector3.zero;
+
+
     void Start()
     {
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
-        recognizer.SetRecognizableGestures(GestureSettings.Tap);
+        
+        recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate);
         recognizer.Tapped += HandleTap;
-        InitializeSession();
+        recognizer.ManipulationUpdated += OnManupulationUpdated;
+        recognizer.ManipulationStarted += OnManipulationStarted;
+        recognizer.ManipulationCompleted += OnManipulationCompleted;
+        recognizer.ManipulationCanceled += OnManipulationCanceled;
+        InitializeCloudManager();
     }
 
-    
-    public void ResetSession()
+
+    private void Update()
+    {
+        if (isHolding == true && currentMovingObject != null)
+        {
+            currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity * -0.07f;
+            Debug.Log(currentMovingVelocity);
+        }
+    }
+
+
+    private void OnManupulationUpdated(ManipulationUpdatedEventArgs obj)
     {
 
+        Debug.Log("M-Update");
+        obj.sourcePose.TryGetVelocity(out currentMovingVelocity);
+        Debug.Log(currentMovingVelocity);
+
+    }
+    private void OnManipulationCompleted(ManipulationCompletedEventArgs obj)
+    {
+        
+        Debug.Log("M-Endding");
+        isHolding = false;
+        currentMovingObject = null;
+
     }
 
-    private void InitializeSession()
+    private void OnManipulationStarted(ManipulationStartedEventArgs obj)
+    {
+        Debug.Log("M-Startingggggggggggggg");
+        Ray HeadRay = new Ray(obj.headPose.position, obj.headPose.forward);
+        RaycastHit hit;
+        if (Physics.Raycast(HeadRay, out hit) )
+        {
+            if ( hit.transform.tag == "Proto")
+            {
+                Debug.Log("Hit!");
+                currentMovingObject = hit.transform.gameObject;
+                isHolding = true;
+            }
+        }
+    }
+
+
+    private void OnManipulationCanceled(ManipulationCanceledEventArgs obj)
+    {
+        Debug.Log("M-Cancel");
+        isHolding = false;
+        currentMovingObject = null;
+    }
+
+
+
+    private void InitializeCloudManager()
     {
         CloudManager = AnchorWrapper.Instance;
         CloudManager.OnAnchorLocated += CloudManager_OnAnchorLocated;
@@ -41,23 +107,16 @@ public class ASATest : MonoBehaviour
         CloudManager.OnSessionError += CloudManager_OnSessionError;
         CloudManager.OnSessionUpdated += CloudManager_SessionUpdated;
     }
-    // Used in Resession, Clean up scence objects
-    public void CleanupObjects()
-    {
-    }
 
     public void HandleTap(TappedEventArgs tapEvent)
         {
-            if (tapExecuted)
-            {
-                return;
-            }
-            tapExecuted = true;
-
-
             // Construct a Ray using forward direction of the HoloLens.
             Ray HeadRay = new Ray(tapEvent.headPose.position, tapEvent.headPose.forward);
             Vector3 PointInAir = HeadRay.GetPoint(1.5f);
+            GameObject protoCopy = Instantiate(protoObject);
+            protoCopy.transform.position = PointInAir;
+            Debug.Log("campos: " + Camera.main.transform.position.ToString());
+            Debug.Log("camforward: " + Camera.main.transform.forward.ToString());
         }
 
 

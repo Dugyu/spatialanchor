@@ -288,7 +288,7 @@ public class AzureSpatialAnchorsScript : MonoBehaviour
         RaycastHit hitInfo;
         Physics.Raycast(GazeRay, out hitInfo, float.MaxValue);
 
-        this.CreateAndSaveSphere(hitInfo.point);
+        CreateAndSaveSphere(hitInfo.point);
     }
 
     /// <summary>

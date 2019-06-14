@@ -24,8 +24,8 @@ public class AnchorWrapper : MonoBehaviour
     }
 
     // Azure Spatial Anchors resource: Spatial Anchors account ID & Key
-    public string SpatialAnchorsAccountId { get; private set; } = "cff005f1-1d07-426f-a593-96ccbe1f7885";
-    public string SpatialAnchorsAccountKey { get; private set; } = "E31K2VrqVs886n6/SdazS9SMFek056VReJ+HpBaB4zk=";
+    public string SpatialAnchorsAccountId { get; private set; } = "7e9b8c8c-504b-4be6-8144-849938de4515";
+    public string SpatialAnchorsAccountKey { get; private set; } = "WVmqVuUTg7rTaboY4ZnUKrxQzRH4FPD6Js+UQdZOV+0=";
     public string AppSharingUrl { get; set; } = "";
 
     // Session Events
@@ -35,6 +35,8 @@ public class AnchorWrapper : MonoBehaviour
     public event SessionUpdatedDelegate OnSessionUpdated;
     public event OnLogDebugDelegate OnLogDebug;
 
+    // Session Ready or Not
+    public bool EnoughDataToCreate => GetSessionStatusIndicator(SessionStatusIndicatorType.RecommendedForCreate) >= 1;
 
     private readonly List<string> AnchorIdsToLocate = new List<string>();
     private readonly Queue<Action> dispatchQueue = new Queue<Action>();
@@ -86,6 +88,7 @@ public class AnchorWrapper : MonoBehaviour
     // Main 
     private void Awake()
     {
+        
     }
 
     private void Start()
@@ -239,7 +242,7 @@ public class AnchorWrapper : MonoBehaviour
 
         await cloudSpatialAnchorSession.CreateAnchorAsync(cloudSpatialAnchor);
 
-        return cloudSpatialAnchor;  // why return?
+        return cloudSpatialAnchor;  // to tell createanchor method is successful
     }
 
     public async Task DeleteAnchorAsync(CloudSpatialAnchor cloudSpatialAnchor)

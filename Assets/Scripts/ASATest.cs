@@ -1,6 +1,7 @@
 ﻿using Microsoft.Azure.SpatialAnchors;
 using System;
 using System.Linq;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -24,6 +25,7 @@ public class ASATest : MonoBehaviour
 
     // Input Template
     public GameObject protoObject;
+    public GameObject anchorProto;
 
     private bool isHolding;
     private GameObject currentMovingObject;
@@ -33,8 +35,13 @@ public class ASATest : MonoBehaviour
     private Vector3 currentCumulativeDelta;
     private Vector3 lastCumulativeDelta;
 
+
+    // Tasks
+    private readonly Queue<Action> dispatchQueue = new Queue<Action>();
+
     void Start()
     {
+        
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
         recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate | GestureSettings.Tap);
@@ -53,21 +60,29 @@ public class ASATest : MonoBehaviour
         {
             currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
             currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
+            
         }
+
+        lock (dispatchQueue)
+        {
+            if (dispatchQueue.Count > 0)
+            {
+                dispatchQueue.Dequeue()();
+            }
+        }
+
     }
 
 
     private void OnManupulationUpdated(ManipulationUpdatedEventArgs obj)
     {
         lastCumulativeDelta = currentCumulativeDelta;
-
-        Debug.Log("M-Update");
         currentCumulativeDelta = obj.cumulativeDelta;
 
     }
     private void OnManipulationStarted(ManipulationStartedEventArgs obj)
     {
-        Debug.Log("M-Startingggggggggggggg");
+        Debug.Log("M-Starting");
         currentCumulativeDelta = Vector3.zero;
 
         Ray HeadRay = new Ray(obj.headPose.position, obj.headPose.forward);
@@ -76,13 +91,11 @@ public class ASATest : MonoBehaviour
         {
             if ( hit.transform.tag == "Proto")
             {
-                Debug.Log("Hit!");
                 currentMovingObject = hit.transform.gameObject;
                 isHolding = true;
             }
         }
     }
-
 
     private void OnManipulationCompleted(ManipulationCompletedEventArgs obj)
     {
@@ -99,7 +112,13 @@ public class ASATest : MonoBehaviour
         currentMovingObject = null;
     }
 
-
+    protected void QueueOnUpdate(Action updateAction)
+    {
+        lock (dispatchQueue)
+        {
+            dispatchQueue.Enqueue(updateAction);
+        }
+    }
 
     private void InitializeCloudManager()
     {
@@ -112,13 +131,87 @@ public class ASATest : MonoBehaviour
     }
 
     public void HandleTap(TappedEventArgs tapEvent)
+    {
+        // Construct a Ray using forward direction of the HoloLens.
+        Ray HeadRay = new Ray(tapEvent.headPose.position, tapEvent.headPose.forward);
+        Vector3 PointInAir = HeadRay.GetPoint(1.5f);
+
+        // Spawn Object
+        GameObject protoCopy = Instantiate(protoObject);
+        protoCopy.transform.position = PointInAir;
+
+        // Empty Object to Hold Anchor
+        GameObject anchorCopy = Instantiate(anchorProto);
+        anchorCopy.transform.position = PointInAir;
+
+        // Bind anchor holder and the spawned object
+        protoCopy.transform.SetParent(anchorCopy.transform);
+        anchorCopy.AddComponent<WorldAnchor>();
+
+        CloudSpatialAnchor localCloudAnchor = new CloudSpatialAnchor();
+        localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
+       
+        localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
+
+        Debug.Log(CloudManager.EnoughDataToCreate);
+
+        currentCloudAnchor = null;
+
+
+
+        Task.Run(async () =>
         {
-            // Construct a Ray using forward direction of the HoloLens.
-            Ray HeadRay = new Ray(tapEvent.headPose.position, tapEvent.headPose.forward);
-            Vector3 PointInAir = HeadRay.GetPoint(1.5f);
-            GameObject protoCopy = Instantiate(protoObject);
-            protoCopy.transform.position = PointInAir;
-        }
+            QueueOnUpdate(() =>
+            {
+                Debug.Log("In Task.......");
+                anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(1.0f, 1.0f, 0.2f);
+            });
+
+
+            while (!CloudManager.EnoughDataToCreate)
+            {
+                await Task.Delay(300);
+                float createProgress = CloudManager.GetSessionStatusIndicator(AnchorWrapper.SessionStatusIndicatorType.RecommendedForCreate);
+                QueueOnUpdate(new Action(() => Debug.Log(createProgress)));
+            }
+
+            bool success = false;
+
+            try
+            {
+                QueueOnUpdate(new Action(() => Debug.Log("Saving...")));
+                currentCloudAnchor = await CloudManager.StoreAnchorInCloud(localCloudAnchor);
+                success = currentCloudAnchor != null;
+
+                if (success)
+                {
+                    QueueOnUpdate(() => 
+                    {
+                        Debug.Log("SaveSuccess!");
+                        anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(1.0f, 0.392f, 0.392f);
+                    });
+                }
+                else
+                {
+                    QueueOnUpdate(() =>
+                   {
+                       Debug.Log("SaveFailed!");
+                       anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(0.392f, 0.392f, 0.8f);
+
+                   });
+                }
+            }
+
+            catch(Exception ex)
+            {
+                QueueOnUpdate(new Action(() => Debug.LogException(ex)));
+            }
+
+        });
+    }
+
+
+
 
     private void CloudManager_SessionUpdated(object sender, SessionUpdatedEventArgs args)
     {

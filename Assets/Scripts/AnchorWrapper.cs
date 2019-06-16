@@ -26,7 +26,7 @@ public class AnchorWrapper : MonoBehaviour
     // Azure Spatial Anchors resource: Spatial Anchors account ID & Key
     public string SpatialAnchorsAccountId { get; private set; } = "7e9b8c8c-504b-4be6-8144-849938de4515";
     public string SpatialAnchorsAccountKey { get; private set; } = "WVmqVuUTg7rTaboY4ZnUKrxQzRH4FPD6Js+UQdZOV+0=";
-    public string AppSharingUrl { get; set; } = "";
+    public string AppSharingUrl { get; set; } = "https://spatialanchorsharingservicetest.azurewebsites.net/api/anchors";
 
     // Session Events
     public event AnchorLocatedDelegate OnAnchorLocated;

@@ -13,7 +13,7 @@ public class ASATest : MonoBehaviour
     // Session Manager Class
     private AnchorWrapper CloudManager;
     public AnchorExchanger anchorExchanger = new AnchorExchanger();
-
+    
     // Hand Interaction
     private GestureRecognizer recognizer;
     protected bool tapExecuted = false;
@@ -21,27 +21,59 @@ public class ASATest : MonoBehaviour
     // Spactial Anchor, Watcher
     public CloudSpatialAnchor currentCloudAnchor;
     public CloudSpatialAnchorWatcher currentWatcher;
+    // local anchor
+    private List<string> localAnchorIds = new List<string>();
 
 
     // Input Template
     public GameObject protoObject;
     public GameObject anchorProto;
 
+    // State
     private bool isHolding;
     private GameObject currentMovingObject;
-
-    
     private Vector3 currentMovingVelocity = Vector3.zero;
     private Vector3 currentCumulativeDelta;
     private Vector3 lastCumulativeDelta;
 
-
     // Tasks
     private readonly Queue<Action> dispatchQueue = new Queue<Action>();
 
+    int count;
+
+    private void Awake()
+    {
+        InitializeCloudManager();
+        anchorExchanger = new AnchorExchanger();
+    }
+
+
     void Start()
     {
-        
+
+        QueueOnUpdate(() => 
+        {
+            anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
+        });
+
+        QueueOnUpdate(() =>
+        {
+            localAnchorIds.AddRange(anchorExchanger.AnchorKeys);
+            count = localAnchorIds.Count;
+        });
+
+        QueueOnUpdate(() =>
+        {
+            Debug.Log("StartScene");
+            Debug.Log(count);
+
+            for (int i = 0; i < count; i++)
+            {
+                Debug.Log("No. " + i + ": " + localAnchorIds[i]);
+            }
+        });
+
+
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
         recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate | GestureSettings.Tap);
@@ -50,7 +82,8 @@ public class ASATest : MonoBehaviour
         recognizer.ManipulationStarted += OnManipulationStarted;
         recognizer.ManipulationCompleted += OnManipulationCompleted;
         recognizer.ManipulationCanceled += OnManipulationCanceled;
-        InitializeCloudManager();
+        anchorExchanger.WatchKeys(CloudManager.AppSharingUrl);
+
     }
 
 
@@ -95,6 +128,15 @@ public class ASATest : MonoBehaviour
                 isHolding = true;
             }
         }
+
+        QueueOnUpdate(() =>
+        {
+            Debug.Log(anchorExchanger.AnchorKeys.Count);
+            for (int i = 0; i < anchorExchanger.AnchorKeys.Count; i++)
+            {
+                Debug.Log(anchorExchanger.AnchorKeys[i]);
+            }
+        });
     }
 
     private void OnManipulationCompleted(ManipulationCompletedEventArgs obj)
@@ -152,7 +194,6 @@ public class ASATest : MonoBehaviour
         localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
        
         localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
-
         Debug.Log(CloudManager.EnoughDataToCreate);
 
         currentCloudAnchor = null;
@@ -181,13 +222,18 @@ public class ASATest : MonoBehaviour
             {
                 QueueOnUpdate(new Action(() => Debug.Log("Saving...")));
                 currentCloudAnchor = await CloudManager.StoreAnchorInCloud(localCloudAnchor);
+                
                 success = currentCloudAnchor != null;
+                long anchorNumber = -1;
 
                 if (success)
                 {
+                    anchorNumber = (await anchorExchanger.StoreAnchorKey(currentCloudAnchor.Identifier));
                     QueueOnUpdate(() => 
                     {
                         Debug.Log("SaveSuccess!");
+                        Debug.Log(currentCloudAnchor.Identifier);
+                        Debug.Log("anchorNumber: " + anchorNumber.ToString());
                         anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(1.0f, 0.392f, 0.392f);
                     });
                 }

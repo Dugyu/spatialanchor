@@ -22,6 +22,31 @@ public class AnchorExchanger
         }
     }
 
+    public void FetchExistingKeys (string exchangerUrl)
+    {
+        bool isKeyEnd = false;
+        Task.Run(async () =>
+        {
+            long anchorPointer = 0;
+            while (!isKeyEnd)
+            {
+                string currentKey = await RetrieveAnchorKey(anchorPointer);
+                if (!string.IsNullOrWhiteSpace(currentKey))
+                {
+                    lock (anchorkeys)
+                    {
+                        anchorkeys.Add(currentKey);
+                    }
+                }
+                else
+                {
+                    isKeyEnd = true;
+                }
+                anchorPointer += 1;
+            }
+        });
+    }
+
 
     // Currently only watch for adding keys?
     public void WatchKeys(string exchangerUrl)
@@ -30,6 +55,10 @@ public class AnchorExchanger
         Task.Factory.StartNew(async () =>
             {
                 string previousKey = string.Empty;
+                if (anchorkeys.Count > 0)
+                {
+                    previousKey = anchorkeys[anchorkeys.Count - 1];
+                }
                 while (true)
                 {
                     string currentKey = await RetrieveLastAnchorKey();

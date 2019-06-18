@@ -48,7 +48,7 @@ public class AnchorExchanger
                 isKeyEnd = true;
             }
         }
-        Debug.Log("Pointer" + anchorPointer.ToString());
+        Debug.Log("AnchorPointer :" + anchorPointer.ToString());
         OnFetchCompleted?.Invoke();
     }
 
@@ -88,9 +88,9 @@ public class AnchorExchanger
             HttpClient client = new HttpClient();
             return await client.GetStringAsync(baseAddress + "/" + anchorNumber.ToString());
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Debug.LogException(ex);
+            //Debug.LogException(ex);
             //Debug.LogError($"Failed to retrieve anchor key for anchor number: {anchorNumber}.");
             return null;
         }

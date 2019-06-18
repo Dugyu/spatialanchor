@@ -22,9 +22,9 @@ public class ASATest : MonoBehaviour
     public CloudSpatialAnchor currentCloudAnchor;
     public CloudSpatialAnchorWatcher currentWatcher;
     // local anchor
-    private List<string> localAnchorIds = new List<string>();
     private Dictionary<string,GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
-
+    private Dictionary<string,CloudSpatialAnchor> localGameObjectsCloudAnchor = new Dictionary<string, CloudSpatialAnchor>();
+        
     // Input Template
     public GameObject protoObject;
     public GameObject anchorProto;
@@ -76,22 +76,19 @@ public class ASATest : MonoBehaviour
         {
             currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
             currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
+            QueueOnUpdate(async () =>
+            {
+                Debug.Log("UpdateAnchor");
+                CloudSpatialAnchor a = await UpdateAppPropertiesWhenObjectMoveAsync(currentMovingObject.transform);
+                
+            });
         }
 
-        
         int currentKeyCount = anchorExchanger.AnchorKeyCount;
         if (watchedAnchorKeys > 0 && currentKeyCount > watchedAnchorKeys)
         {
-            int differ = currentKeyCount - watchedAnchorKeys;
-            List<string> newKeys = new List<string>();
-            for (int i = 0; i<differ; i++)
-            {
-                localAnchorIds.Add(anchorExchanger.AnchorKeys[watchedAnchorKeys + i]);
-                newKeys.Add(localAnchorIds[localAnchorIds.Count - 1]);
-            }
             watchedAnchorKeys = currentKeyCount;
-            // add extra watcher here
-            AnchorExchanger_IncreaseWatcher(newKeys);
+            AnchorExchanger_UpdateWatcher();
         }
 
         lock (dispatchQueue)
@@ -166,24 +163,23 @@ public class ASATest : MonoBehaviour
 
     private void AnchorExchanger_OnFetchCompleted()
     {
-
+        // existing keys fetch completed
         Debug.Log("Delegate Fetch Completed, find existing keys: " + anchorExchanger.AnchorKeys.Count.ToString());
-        Debug.Log("Starting WatchKeys.");
-
         CloudManager.SetAnchorIdsToLocate(anchorExchanger.AnchorKeys);
+        Debug.Log("Start watching keys.");
         CloudManager.CreateWatcher();
-        // state change  global broadcast
-        localAnchorIds.AddRange(anchorExchanger.AnchorKeys);
-        watchedAnchorKeys = localAnchorIds.Count;
-     
+        // state change
+        watchedAnchorKeys = anchorExchanger.AnchorKeys.Count;
         anchorExchanger.WatchKeys(CloudManager.AppSharingUrl);
     }
 
-    private void AnchorExchanger_IncreaseWatcher(List<string> localAnchorKeysToAdd)
+    private void AnchorExchanger_UpdateWatcher()
     {
-        Debug.Log("Adding New Watcher");
-        CloudManager.SetAnchorIdsToLocate(localAnchorKeysToAdd);
-        CloudManager.CreateWatcher(); 
+        Debug.Log("Updating Watcher...");
+        CloudManager.StopActiveWatchers();
+        CloudManager.SetAnchorIdsToLocate(anchorExchanger.AnchorKeys);
+        CloudManager.CreateWatcher();
+        Debug.Log("Watcher Updated");
     }
 
     public void HandleTap(TappedEventArgs tapEvent)
@@ -207,31 +203,7 @@ public class ASATest : MonoBehaviour
         CloudSpatialAnchor localCloudAnchor = new CloudSpatialAnchor();
         localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
 
-        int index = 0;
-
-        string name = protoCopy.name;
-        string scaleX = protoCopy.transform.localScale.x.ToString();
-        string scaleY = protoCopy.transform.localScale.y.ToString();
-        string scaleZ = protoCopy.transform.localScale.z.ToString();
-        string posX = protoCopy.transform.localPosition.x.ToString();
-        string posY = protoCopy.transform.localPosition.y.ToString();
-        string posZ = protoCopy.transform.localPosition.z.ToString();
-        string rotX = protoCopy.transform.localRotation.x.ToString();
-        string rotY = protoCopy.transform.localRotation.y.ToString();
-        string rotZ = protoCopy.transform.localRotation.z.ToString();
-        string rotW = protoCopy.transform.localRotation.w.ToString();
-
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-name", name);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleX", scaleX);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleY", scaleY);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleZ", scaleZ);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-posX", posX);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-posY", posY);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-posZ", posZ);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotX", rotX);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotY", rotY);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotZ", rotZ);
-        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotW", rotW);
+        localCloudAnchor = StoreAppPropertiesUsingTransform(protoCopy.transform, localCloudAnchor, 0);
 
 
         localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
@@ -273,7 +245,7 @@ public class ASATest : MonoBehaviour
 
                         //  Store in Local GameObject Dictionary
                         localAnchorGameObjects.Add(currentCloudAnchor.Identifier, anchorCopy);
-
+                        localGameObjectsCloudAnchor.Add(anchorCopy.GetInstanceID().ToString(), currentCloudAnchor);
                         Debug.Log(currentCloudAnchor.Identifier);
                         Debug.Log("anchorNumber: " + anchorNumber.ToString());
                         anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPink;
@@ -329,9 +301,13 @@ public class ASATest : MonoBehaviour
                 {
                     QueueOnUpdate(() => 
                     {
-                        Debug.Log("located: " + args.Anchor.Identifier);
-                        Debug.Log("versionTag: " + args.Anchor.VersionTag);
+                        Debug.Log("Located: " + args.Anchor.Identifier);
                         GameObject anchorCube = Instantiate(anchorProto);
+                        anchorCube.GetInstanceID();
+
+
+                        localAnchorGameObjects.Add(args.Anchor.Identifier, anchorCube);
+                        localGameObjectsCloudAnchor.Add(anchorCube.GetInstanceID().ToString(), args.Anchor);
                         anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
                         anchorCube.AddComponent<WorldAnchor>();
                         anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
@@ -380,6 +356,52 @@ public class ASATest : MonoBehaviour
         obj.transform.localRotation = rot;
     }
 
+    private CloudSpatialAnchor StoreAppPropertiesUsingTransform(Transform obj, CloudSpatialAnchor localCloudAnchor, int index)
+    {
+        string name = obj.tag;
+        string scaleX = obj.transform.localScale.x.ToString();
+        string scaleY = obj.transform.localScale.y.ToString();
+        string scaleZ = obj.transform.localScale.z.ToString();
+        string posX = obj.transform.localPosition.x.ToString();
+        string posY = obj.transform.localPosition.y.ToString();
+        string posZ = obj.transform.localPosition.z.ToString();
+        string rotX = obj.transform.localRotation.x.ToString();
+        string rotY = obj.transform.localRotation.y.ToString();
+        string rotZ = obj.transform.localRotation.z.ToString();
+        string rotW = obj.transform.localRotation.w.ToString();
+
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-name", name);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleX", scaleX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleY", scaleY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleZ", scaleZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posX", posX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posY", posY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posZ", posZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotX", rotX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotY", rotY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotZ", rotZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotW", rotW);
+
+        return localCloudAnchor;
+    }
+
+    private async Task<CloudSpatialAnchor> UpdateAppPropertiesWhenObjectMoveAsync(Transform obj)
+    {
+        string key = obj.parent.gameObject.GetInstanceID().ToString();
+        if (localGameObjectsCloudAnchor.ContainsKey(key))
+        {
+
+            CloudSpatialAnchor anchorToUpdate = localGameObjectsCloudAnchor[key];
+            anchorToUpdate = StoreAppPropertiesUsingTransform(obj, anchorToUpdate, obj.GetSiblingIndex());
+            CloudSpatialAnchor anchorUpdated = await CloudManager.UpdateAnchorInCloud(anchorToUpdate);
+            localGameObjectsCloudAnchor[key] = anchorUpdated;
+            return anchorUpdated;
+        }
+        else
+        {
+            return null;
+        }        
+    }
 
     private void CloudManager_OnLocateAnchorsCompleted(object sender, LocateAnchorsCompletedEventArgs args)
     {

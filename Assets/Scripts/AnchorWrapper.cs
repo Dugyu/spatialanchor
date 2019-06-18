@@ -159,6 +159,18 @@ public class AnchorWrapper : MonoBehaviour
         }
     }
 
+    public void StopActiveWatchers()
+    {
+        // need to be updated if future SDK supports multiple active watchers
+        if (SessionValid() && cloudSpatialAnchorSession.GetActiveWatchers().Count > 0)
+        {
+            foreach (CloudSpatialAnchorWatcher watcher in cloudSpatialAnchorSession.GetActiveWatchers())
+            {
+                watcher.Stop();
+            }
+        }
+    }
+
     public CloudSpatialAnchorWatcher CreateWatcher()
     {
         if (SessionValid())

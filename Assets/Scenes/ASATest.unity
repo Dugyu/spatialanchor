@@ -208,7 +208,7 @@ GameObject:
   - component: {fileID: 777447989}
   m_Layer: 0
   m_Name: Cylinder
-  m_TagString: Proto
+  m_TagString: ChildProto
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -299,7 +299,7 @@ GameObject:
   - component: {fileID: 1013559375}
   m_Layer: 0
   m_Name: AnchorProto
-  m_TagString: Untagged
+  m_TagString: ParentProto
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

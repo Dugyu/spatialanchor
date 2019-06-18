@@ -23,23 +23,22 @@ public class ASATest : MonoBehaviour
     public CloudSpatialAnchorWatcher currentWatcher;
     // local anchor
     private List<string> localAnchorIds = new List<string>();
-
+    private Dictionary<string,GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
 
     // Input Template
     public GameObject protoObject;
     public GameObject anchorProto;
     
     // State
-    private bool isHolding;
+    private bool isHolding = false;
     private GameObject currentMovingObject;
     private Vector3 currentMovingVelocity = Vector3.zero;
     private Vector3 currentCumulativeDelta;
     private Vector3 lastCumulativeDelta;
+    private int watchedAnchorKeys = -1;
 
     // Tasks
     private readonly Queue<Action> dispatchQueue = new Queue<Action>();
-
-    int count;
 
     // color
     private Color anchorColorYellow = new Color(1.0f, 1.0f, 0.2f);
@@ -52,18 +51,14 @@ public class ASATest : MonoBehaviour
         InitializeAnchorExchanger();
     }
 
-
     void Start()
     {
-
          QueueOnUpdate(async () =>
         {
             Debug.Log("StartScene");
             Debug.Log("Starting Fetch Keys");
             await anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
         });
-
-
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
         recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate | GestureSettings.Tap);
@@ -75,14 +70,28 @@ public class ASATest : MonoBehaviour
 
     }
 
-
     private void Update()
     {
         if (isHolding == true && currentMovingObject != null)
         {
             currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
             currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
-            
+        }
+
+        
+        int currentKeyCount = anchorExchanger.AnchorKeyCount;
+        if (watchedAnchorKeys > 0 && currentKeyCount > watchedAnchorKeys)
+        {
+            int differ = currentKeyCount - watchedAnchorKeys;
+            List<string> newKeys = new List<string>();
+            for (int i = 0; i<differ; i++)
+            {
+                localAnchorIds.Add(anchorExchanger.AnchorKeys[watchedAnchorKeys + i]);
+                newKeys.Add(localAnchorIds[localAnchorIds.Count - 1]);
+            }
+            watchedAnchorKeys = currentKeyCount;
+            // add extra watcher here
+            AnchorExchanger_IncreaseWatcher(newKeys);
         }
 
         lock (dispatchQueue)
@@ -94,12 +103,10 @@ public class ASATest : MonoBehaviour
         }
     }
 
-
     private void OnManupulationUpdated(ManipulationUpdatedEventArgs obj)
     {
         lastCumulativeDelta = currentCumulativeDelta;
         currentCumulativeDelta = obj.cumulativeDelta;
-
     }
 
     private void OnManipulationStarted(ManipulationStartedEventArgs obj)
@@ -165,7 +172,18 @@ public class ASATest : MonoBehaviour
 
         CloudManager.SetAnchorIdsToLocate(anchorExchanger.AnchorKeys);
         CloudManager.CreateWatcher();
+        // state change  global broadcast
+        localAnchorIds.AddRange(anchorExchanger.AnchorKeys);
+        watchedAnchorKeys = localAnchorIds.Count;
+     
         anchorExchanger.WatchKeys(CloudManager.AppSharingUrl);
+    }
+
+    private void AnchorExchanger_IncreaseWatcher(List<string> localAnchorKeysToAdd)
+    {
+        Debug.Log("Adding New Watcher");
+        CloudManager.SetAnchorIdsToLocate(localAnchorKeysToAdd);
+        CloudManager.CreateWatcher(); 
     }
 
     public void HandleTap(TappedEventArgs tapEvent)
@@ -188,7 +206,6 @@ public class ASATest : MonoBehaviour
 
         CloudSpatialAnchor localCloudAnchor = new CloudSpatialAnchor();
         localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
-
 
         int index = 0;
 
@@ -253,6 +270,10 @@ public class ASATest : MonoBehaviour
                     QueueOnUpdate(() => 
                     {
                         Debug.Log("SaveSuccess!");
+
+                        //  Store in Local GameObject Dictionary
+                        localAnchorGameObjects.Add(currentCloudAnchor.Identifier, anchorCopy);
+
                         Debug.Log(currentCloudAnchor.Identifier);
                         Debug.Log("anchorNumber: " + anchorNumber.ToString());
                         anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPink;
@@ -286,40 +307,42 @@ public class ASATest : MonoBehaviour
         switch (args.Status)
         {
             case LocateAnchorStatus.Located:
-                QueueOnUpdate(() => 
+
+                // if this anchor has already been added to local scene objects
+                if (localAnchorGameObjects.ContainsKey(args.Anchor.Identifier))
                 {
-                Debug.Log("located: " + args.Anchor.Identifier);
-                Debug.Log("versionTag: " + args.Anchor.VersionTag);
-                GameObject anchorCube = Instantiate(anchorProto);
-                anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
-                anchorCube.AddComponent<WorldAnchor>();
-                anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
-                    int id = 0;
-                    if (args.Anchor.AppProperties.Count > 0)
+                    QueueOnUpdate(() =>
                     {
-                        Vector3 pos = Vector3.zero;
-                        pos.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posX"]);
-                        pos.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posY"]);
-                        pos.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posZ"]);
+                        GameObject parent = localAnchorGameObjects[args.Anchor.Identifier];
 
-                        Vector3 scale = Vector3.zero;
-                        scale.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleX"]);
-                        scale.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleY"]);
-                        scale.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleZ"]);
+                        int childCount = parent.transform.childCount;
 
-                        Quaternion rot = Quaternion.identity;
-                        rot.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotX"]);
-                        rot.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotY"]);
-                        rot.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotZ"]);
-                        rot.w = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotW"]);
-
-                        Debug.Log(args.Anchor.AppProperties["0-name"]);
-                        GameObject obj = Instantiate(protoObject, anchorCube.transform);
-                        obj.transform.localPosition = pos;
-                        obj.transform.localScale = scale;
-                        obj.transform.localRotation = rot;
-                    }
-                });
+                        for (int i = 0; i < childCount; i++)
+                        {
+                            Transform child = parent.transform.GetChild(i);
+                            MoveObjectUsingAppProperties(child.transform, args, i);
+                        }
+                    });
+                }
+                // if this anchor is yet to be added to the local scene objects
+                else
+                {
+                    QueueOnUpdate(() => 
+                    {
+                        Debug.Log("located: " + args.Anchor.Identifier);
+                        Debug.Log("versionTag: " + args.Anchor.VersionTag);
+                        GameObject anchorCube = Instantiate(anchorProto);
+                        anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
+                        anchorCube.AddComponent<WorldAnchor>();
+                        anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
+                        int id = 0;
+                        if (args.Anchor.AppProperties.Count > 0)
+                            {
+                                GameObject child = Instantiate(protoObject, anchorCube.transform);
+                                MoveObjectUsingAppProperties(child.transform, args, id);
+                            }
+                    });
+                }
 
                 break;
             case LocateAnchorStatus.AlreadyTracked:
@@ -333,6 +356,30 @@ public class ASATest : MonoBehaviour
                 break;
         }
     }
+
+    private void MoveObjectUsingAppProperties(Transform obj, AnchorLocatedEventArgs args, int id)
+    {
+        Vector3 pos = Vector3.zero;
+        pos.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posX"]);
+        pos.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posY"]);
+        pos.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posZ"]);
+
+        Vector3 scale = Vector3.zero;
+        scale.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleX"]);
+        scale.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleY"]);
+        scale.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleZ"]);
+
+        Quaternion rot = Quaternion.identity;
+        rot.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotX"]);
+        rot.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotY"]);
+        rot.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotZ"]);
+        rot.w = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotW"]);
+
+        obj.transform.localPosition = pos;
+        obj.transform.localScale = scale;
+        obj.transform.localRotation = rot;
+    }
+
 
     private void CloudManager_OnLocateAnchorsCompleted(object sender, LocateAnchorsCompletedEventArgs args)
     {

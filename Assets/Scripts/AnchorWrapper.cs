@@ -252,6 +252,30 @@ public class AnchorWrapper : MonoBehaviour
         }
     }
 
+    public async Task<CloudSpatialAnchor> UpdateAnchorInCloud(CloudSpatialAnchor cloudSpatialAnchor)
+    {
+        if(SessionStatusIndicators[(int)SessionStatusIndicatorType.ReadyForCreate] < 1)
+        {
+            return null;
+        }
+        await cloudSpatialAnchorSession.UpdateAnchorPropertiesAsync(cloudSpatialAnchor);
+        return cloudSpatialAnchor;
+    }
+
+
+
+    public async Task<CloudSpatialAnchor> RefreshAnchorInCloud(CloudSpatialAnchor cloudSpatialAnchor)
+    {
+        if (SessionStatusIndicators[(int)SessionStatusIndicatorType.ReadyForCreate] < 1)
+        {
+            return null;
+        }
+        await cloudSpatialAnchorSession.RefreshAnchorPropertiesAsync(cloudSpatialAnchor);
+        return cloudSpatialAnchor;
+    }
+
+
+
     // Initial Session
     private void InitializeCloudSession()
     {

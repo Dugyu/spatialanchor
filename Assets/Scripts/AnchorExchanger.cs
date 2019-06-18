@@ -20,9 +20,11 @@ public class AnchorExchanger
             }
         }
     }
+    public int AnchorKeyCount = 0;
 
     public delegate void FetchCompleted();
     public static event FetchCompleted OnFetchCompleted;
+
 
     public async Task FetchExistingKeys(string exchangerUrl)
     {
@@ -39,6 +41,7 @@ public class AnchorExchanger
                     anchorkeys.Add(currentKey);
                 }
                 anchorPointer += 1;
+                AnchorKeyCount += 1;
             }
             else
             {
@@ -71,6 +74,7 @@ public class AnchorExchanger
                             anchorkeys.Add(currentKey);
                         }
                         previousKey = currentKey;
+                        AnchorKeyCount += 1;
                     }
                     await Task.Delay(500);
                 }
@@ -86,7 +90,7 @@ public class AnchorExchanger
         }
         catch (Exception ex)
         {
-            //Debug.LogException(ex);
+            Debug.LogException(ex);
             //Debug.LogError($"Failed to retrieve anchor key for anchor number: {anchorNumber}.");
             return null;
         }

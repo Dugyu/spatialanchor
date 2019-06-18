@@ -10,7 +10,6 @@ public class AnchorExchanger
     private string baseAddress = "";
 
     private List<string> anchorkeys = new List<string>();
-
     public List<string> AnchorKeys
     {
         get
@@ -22,31 +21,33 @@ public class AnchorExchanger
         }
     }
 
-    public void FetchExistingKeys (string exchangerUrl)
+    public delegate void FetchCompleted();
+    public static event FetchCompleted OnFetchCompleted;
+
+    public async Task FetchExistingKeys(string exchangerUrl)
     {
-        bool isKeyEnd = false;
-        Task.Run(async () =>
+        baseAddress = exchangerUrl;
+        var isKeyEnd = false;
+        long anchorPointer = 0;
+        while (!isKeyEnd)
         {
-            long anchorPointer = 0;
-            while (!isKeyEnd)
+            string currentKey = await RetrieveAnchorKey(anchorPointer);
+            if (!string.IsNullOrWhiteSpace(currentKey))
             {
-                string currentKey = await RetrieveAnchorKey(anchorPointer);
-                if (!string.IsNullOrWhiteSpace(currentKey))
+                lock (anchorkeys)
                 {
-                    lock (anchorkeys)
-                    {
-                        anchorkeys.Add(currentKey);
-                    }
-                }
-                else
-                {
-                    isKeyEnd = true;
+                    anchorkeys.Add(currentKey);
                 }
                 anchorPointer += 1;
             }
-        });
+            else
+            {
+                isKeyEnd = true;
+            }
+        }
+        Debug.Log("Pointer" + anchorPointer.ToString());
+        OnFetchCompleted?.Invoke();
     }
-
 
     // Currently only watch for adding keys?
     public void WatchKeys(string exchangerUrl)
@@ -85,8 +86,8 @@ public class AnchorExchanger
         }
         catch (Exception ex)
         {
-            Debug.LogException(ex);
-            Debug.LogError($"Failed to retrieve anchor key for anchor number: {anchorNumber}.");
+            //Debug.LogException(ex);
+            //Debug.LogError($"Failed to retrieve anchor key for anchor number: {anchorNumber}.");
             return null;
         }
     }

@@ -207,6 +207,7 @@ public class AzureSpatialAnchorsScript : MonoBehaviour
     {
         switch (args.Status)
         {
+            
             case LocateAnchorStatus.Located:
                 Debug.Log("ASA Info: Anchor located! Identifier: " + args.Identifier);
                 QueueOnUpdate(() =>

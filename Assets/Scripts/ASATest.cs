@@ -28,7 +28,7 @@ public class ASATest : MonoBehaviour
     // Input Template
     public GameObject protoObject;
     public GameObject anchorProto;
-
+    
     // State
     private bool isHolding;
     private GameObject currentMovingObject;
@@ -41,36 +41,26 @@ public class ASATest : MonoBehaviour
 
     int count;
 
+    // color
+    private Color anchorColorYellow = new Color(1.0f, 1.0f, 0.2f);
+    private Color anchorColorPink = new Color(1.0f, 0.392f, 0.392f);
+    private Color anchorColorPurple = new Color(0.392f, 0.392f, 0.8f);
+
     private void Awake()
     {
         InitializeCloudManager();
-        anchorExchanger = new AnchorExchanger();
+        InitializeAnchorExchanger();
     }
 
 
     void Start()
     {
 
-        QueueOnUpdate(() => 
-        {
-            anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
-        });
-
-        QueueOnUpdate(() =>
-        {
-            localAnchorIds.AddRange(anchorExchanger.AnchorKeys);
-            count = localAnchorIds.Count;
-        });
-
-        QueueOnUpdate(() =>
+         QueueOnUpdate(async () =>
         {
             Debug.Log("StartScene");
-            Debug.Log(count);
-
-            for (int i = 0; i < count; i++)
-            {
-                Debug.Log("No. " + i + ": " + localAnchorIds[i]);
-            }
+            Debug.Log("Starting Fetch Keys");
+            await anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
         });
 
 
@@ -82,7 +72,6 @@ public class ASATest : MonoBehaviour
         recognizer.ManipulationStarted += OnManipulationStarted;
         recognizer.ManipulationCompleted += OnManipulationCompleted;
         recognizer.ManipulationCanceled += OnManipulationCanceled;
-        anchorExchanger.WatchKeys(CloudManager.AppSharingUrl);
 
     }
 
@@ -103,7 +92,6 @@ public class ASATest : MonoBehaviour
                 dispatchQueue.Dequeue()();
             }
         }
-
     }
 
 
@@ -113,6 +101,7 @@ public class ASATest : MonoBehaviour
         currentCumulativeDelta = obj.cumulativeDelta;
 
     }
+
     private void OnManipulationStarted(ManipulationStartedEventArgs obj)
     {
         Debug.Log("M-Starting");
@@ -131,11 +120,8 @@ public class ASATest : MonoBehaviour
 
         QueueOnUpdate(() =>
         {
-            Debug.Log(anchorExchanger.AnchorKeys.Count);
-            for (int i = 0; i < anchorExchanger.AnchorKeys.Count; i++)
-            {
-                Debug.Log(anchorExchanger.AnchorKeys[i]);
-            }
+            Debug.Log("mani: " + anchorExchanger.AnchorKeys.Count.ToString());
+
         });
     }
 
@@ -154,14 +140,6 @@ public class ASATest : MonoBehaviour
         currentMovingObject = null;
     }
 
-    protected void QueueOnUpdate(Action updateAction)
-    {
-        lock (dispatchQueue)
-        {
-            dispatchQueue.Enqueue(updateAction);
-        }
-    }
-
     private void InitializeCloudManager()
     {
         CloudManager = AnchorWrapper.Instance;
@@ -170,6 +148,24 @@ public class ASATest : MonoBehaviour
         CloudManager.OnLogDebug += CloudManager_OnLogDebug;
         CloudManager.OnSessionError += CloudManager_OnSessionError;
         CloudManager.OnSessionUpdated += CloudManager_SessionUpdated;
+    }
+
+    private void InitializeAnchorExchanger()
+    {
+        anchorExchanger = new AnchorExchanger();
+        AnchorExchanger.OnFetchCompleted += AnchorExchanger_OnFetchCompleted;
+       
+    }
+
+    private void AnchorExchanger_OnFetchCompleted()
+    {
+
+        Debug.Log("Delegate Fetch Completed, find existing keys: " + anchorExchanger.AnchorKeys.Count.ToString());
+        Debug.Log("Starting WatchKeys.");
+
+        CloudManager.SetAnchorIdsToLocate(anchorExchanger.AnchorKeys);
+        CloudManager.CreateWatcher();
+        anchorExchanger.WatchKeys(CloudManager.AppSharingUrl);
     }
 
     public void HandleTap(TappedEventArgs tapEvent)
@@ -181,7 +177,7 @@ public class ASATest : MonoBehaviour
         // Spawn Object
         GameObject protoCopy = Instantiate(protoObject);
         protoCopy.transform.position = PointInAir;
-
+        protoCopy.transform.rotation = Quaternion.Euler(0, 0, 70);
         // Empty Object to Hold Anchor
         GameObject anchorCopy = Instantiate(anchorProto);
         anchorCopy.transform.position = PointInAir;
@@ -192,20 +188,46 @@ public class ASATest : MonoBehaviour
 
         CloudSpatialAnchor localCloudAnchor = new CloudSpatialAnchor();
         localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
-       
+
+
+        int index = 0;
+
+        string name = protoCopy.name;
+        string scaleX = protoCopy.transform.localScale.x.ToString();
+        string scaleY = protoCopy.transform.localScale.y.ToString();
+        string scaleZ = protoCopy.transform.localScale.z.ToString();
+        string posX = protoCopy.transform.localPosition.x.ToString();
+        string posY = protoCopy.transform.localPosition.y.ToString();
+        string posZ = protoCopy.transform.localPosition.z.ToString();
+        string rotX = protoCopy.transform.localRotation.x.ToString();
+        string rotY = protoCopy.transform.localRotation.y.ToString();
+        string rotZ = protoCopy.transform.localRotation.z.ToString();
+        string rotW = protoCopy.transform.localRotation.w.ToString();
+
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-name", name);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleX", scaleX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleY", scaleY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-scaleZ", scaleZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posX", posX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posY", posY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-posZ", posZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotX", rotX);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotY", rotY);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotZ", rotZ);
+        localCloudAnchor.AppProperties.Add(index.ToString() + "-rotW", rotW);
+
+
         localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
         Debug.Log(CloudManager.EnoughDataToCreate);
 
         currentCloudAnchor = null;
-
-
 
         Task.Run(async () =>
         {
             QueueOnUpdate(() =>
             {
                 Debug.Log("In Task.......");
-                anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(1.0f, 1.0f, 0.2f);
+                anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorYellow;
             });
 
 
@@ -222,7 +244,6 @@ public class ASATest : MonoBehaviour
             {
                 QueueOnUpdate(new Action(() => Debug.Log("Saving...")));
                 currentCloudAnchor = await CloudManager.StoreAnchorInCloud(localCloudAnchor);
-                
                 success = currentCloudAnchor != null;
                 long anchorNumber = -1;
 
@@ -234,7 +255,7 @@ public class ASATest : MonoBehaviour
                         Debug.Log("SaveSuccess!");
                         Debug.Log(currentCloudAnchor.Identifier);
                         Debug.Log("anchorNumber: " + anchorNumber.ToString());
-                        anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(1.0f, 0.392f, 0.392f);
+                        anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPink;
                     });
                 }
                 else
@@ -242,7 +263,7 @@ public class ASATest : MonoBehaviour
                     QueueOnUpdate(() =>
                    {
                        Debug.Log("SaveFailed!");
-                       anchorCopy.GetComponent<MeshRenderer>().material.color = new Color(0.392f, 0.392f, 0.8f);
+                       anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPurple;
 
                    });
                 }
@@ -256,15 +277,61 @@ public class ASATest : MonoBehaviour
         });
     }
 
-
-
-
     private void CloudManager_SessionUpdated(object sender, SessionUpdatedEventArgs args)
     {
     }
 
     private void CloudManager_OnAnchorLocated(object sender, AnchorLocatedEventArgs args)
     {
+        switch (args.Status)
+        {
+            case LocateAnchorStatus.Located:
+                QueueOnUpdate(() => 
+                {
+                Debug.Log("located: " + args.Anchor.Identifier);
+                Debug.Log("versionTag: " + args.Anchor.VersionTag);
+                GameObject anchorCube = Instantiate(anchorProto);
+                anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
+                anchorCube.AddComponent<WorldAnchor>();
+                anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
+                    int id = 0;
+                    if (args.Anchor.AppProperties.Count > 0)
+                    {
+                        Vector3 pos = Vector3.zero;
+                        pos.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posX"]);
+                        pos.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posY"]);
+                        pos.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-posZ"]);
+
+                        Vector3 scale = Vector3.zero;
+                        scale.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleX"]);
+                        scale.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleY"]);
+                        scale.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-scaleZ"]);
+
+                        Quaternion rot = Quaternion.identity;
+                        rot.x = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotX"]);
+                        rot.y = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotY"]);
+                        rot.z = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotZ"]);
+                        rot.w = float.Parse(args.Anchor.AppProperties[id.ToString() + "-rotW"]);
+
+                        Debug.Log(args.Anchor.AppProperties["0-name"]);
+                        GameObject obj = Instantiate(protoObject, anchorCube.transform);
+                        obj.transform.localPosition = pos;
+                        obj.transform.localScale = scale;
+                        obj.transform.localRotation = rot;
+                    }
+                });
+
+                break;
+            case LocateAnchorStatus.AlreadyTracked:
+                Debug.Log("Already tracked! " + args.Anchor.Identifier);
+                break;
+            case LocateAnchorStatus.NotLocated:
+                Debug.Log("notLocated");
+                break;
+            case LocateAnchorStatus.NotLocatedAnchorDoesNotExist:
+                Debug.Log("NotExist");
+                break;
+        }
     }
 
     private void CloudManager_OnLocateAnchorsCompleted(object sender, LocateAnchorsCompletedEventArgs args)
@@ -281,6 +348,13 @@ public class ASATest : MonoBehaviour
         Debug.Log(args.Message);
     }
 
+    protected void QueueOnUpdate(Action updateAction)
+    {
+        lock (dispatchQueue)
+        {
+            dispatchQueue.Enqueue(updateAction);
+        }
+    }
 
 
 

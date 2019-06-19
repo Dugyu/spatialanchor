@@ -21,7 +21,8 @@ public class ASATest : MonoBehaviour
     // Spactial Anchor, Watcher
     public CloudSpatialAnchor currentCloudAnchor;
     public CloudSpatialAnchorWatcher currentWatcher;
-    // local anchor
+    
+    // local anchor storage dictionary
     private Dictionary<string,GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
     private Dictionary<string,CloudSpatialAnchor> localGameObjectsCloudAnchor = new Dictionary<string, CloudSpatialAnchor>();
         
@@ -55,8 +56,8 @@ public class ASATest : MonoBehaviour
     {
          QueueOnUpdate(async () =>
         {
-            Debug.Log("StartScene");
-            Debug.Log("Starting Fetch Keys");
+            Debug.Log("Start Scene.");
+            Debug.Log("Start Fetching Keys...");
             await anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
         });
         recognizer = new GestureRecognizer();
@@ -79,13 +80,17 @@ public class ASATest : MonoBehaviour
             QueueOnUpdate(async () =>
             {
                 Debug.Log("UpdateAnchor");
-                CloudSpatialAnchor a = await UpdateAppPropertiesWhenObjectMoveAsync(currentMovingObject.transform);
-                
+                CloudSpatialAnchor updatedAnchor = await UpdateAppPropertiesWhenObjectMoveAsync(currentMovingObject.transform);
+                bool success = updatedAnchor != null;
+                if (success)
+                {
+                    Debug.Log("UpdateSuccess!");
+                }
             });
         }
 
         int currentKeyCount = anchorExchanger.AnchorKeyCount;
-        if (watchedAnchorKeys > 0 && currentKeyCount > watchedAnchorKeys)
+        if (watchedAnchorKeys >= 0 && currentKeyCount > watchedAnchorKeys)
         {
             watchedAnchorKeys = currentKeyCount;
             AnchorExchanger_UpdateWatcher();
@@ -191,7 +196,10 @@ public class ASATest : MonoBehaviour
         // Spawn Object
         GameObject protoCopy = Instantiate(protoObject);
         protoCopy.transform.position = PointInAir;
-        protoCopy.transform.rotation = Quaternion.Euler(0, 0, 70);
+
+        float rotX = UnityEngine.Random.Range(10, 70);
+        float rotY = UnityEngine.Random.Range(10, 70);
+        protoCopy.transform.rotation = Quaternion.Euler(rotX, 0, rotY);
         // Empty Object to Hold Anchor
         GameObject anchorCopy = Instantiate(anchorProto);
         anchorCopy.transform.position = PointInAir;
@@ -204,7 +212,6 @@ public class ASATest : MonoBehaviour
         localCloudAnchor.LocalAnchor = anchorCopy.GetComponent<WorldAnchor>().GetNativeSpatialAnchorPtr();
 
         localCloudAnchor = StoreAppPropertiesUsingTransform(protoCopy.transform, localCloudAnchor, 0);
-
 
         localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
         Debug.Log(CloudManager.EnoughDataToCreate);
@@ -288,6 +295,7 @@ public class ASATest : MonoBehaviour
                         GameObject parent = localAnchorGameObjects[args.Anchor.Identifier];
 
                         int childCount = parent.transform.childCount;
+                        Debug.Log("ChildCount: " + parent.transform.childCount.ToString());
 
                         for (int i = 0; i < childCount; i++)
                         {

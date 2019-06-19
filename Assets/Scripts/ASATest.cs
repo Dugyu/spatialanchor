@@ -13,7 +13,7 @@ public class ASATest : MonoBehaviour
     // Session Manager Class
     private AnchorWrapper CloudManager;
     public AnchorExchanger anchorExchanger = new AnchorExchanger();
-    
+
     // Hand Interaction
     private GestureRecognizer recognizer;
     protected bool tapExecuted = false;
@@ -21,25 +21,29 @@ public class ASATest : MonoBehaviour
     // Spactial Anchor, Watcher
     public CloudSpatialAnchor currentCloudAnchor;
     public CloudSpatialAnchorWatcher currentWatcher;
-    
+
     // local anchor storage dictionary
-    private Dictionary<string,GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
-    private Dictionary<string,CloudSpatialAnchor> localGameObjectsCloudAnchor = new Dictionary<string, CloudSpatialAnchor>();
-        
+    private Dictionary<string, GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
+    private Dictionary<string, CloudSpatialAnchor> localGameObjectsCloudAnchor = new Dictionary<string, CloudSpatialAnchor>();
+
     // Input Template
     public GameObject protoObject;
     public GameObject anchorProto;
-    
+
     // State
     private bool isHolding = false;
+    private bool justReleased = false;
     private GameObject currentMovingObject;
     private Vector3 currentMovingVelocity = Vector3.zero;
     private Vector3 currentCumulativeDelta;
     private Vector3 lastCumulativeDelta;
     private int watchedAnchorKeys = -1;
 
+    private Transform currentTransform;
+
     // Tasks
     private readonly Queue<Action> dispatchQueue = new Queue<Action>();
+    private readonly Queue<Action> dispatchQueueMove = new Queue<Action>();
 
     // color
     private Color anchorColorYellow = new Color(1.0f, 1.0f, 0.2f);
@@ -54,12 +58,12 @@ public class ASATest : MonoBehaviour
 
     void Start()
     {
-         QueueOnUpdate(async () =>
-        {
-            Debug.Log("Start Scene.");
-            Debug.Log("Start Fetching Keys...");
-            await anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
-        });
+        QueueOnUpdate(async () =>
+       {
+           Debug.Log("Start Scene.");
+           Debug.Log("Start Fetching Keys...");
+           await anchorExchanger.FetchExistingKeys(CloudManager.AppSharingUrl);
+       });
         recognizer = new GestureRecognizer();
         recognizer.StartCapturingGestures();
         recognizer.SetRecognizableGestures(GestureSettings.ManipulationTranslate | GestureSettings.Tap);
@@ -77,16 +81,21 @@ public class ASATest : MonoBehaviour
         {
             currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
             currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
-            QueueOnUpdate(async () =>
+            currentTransform = currentMovingObject.transform;
+            CloudSpatialAnchor anchorToUpdate = UpdateAppPropertiesWhenObjectMoveAsync(currentTransform);
+
+            Task.Run(async () =>
             {
-                Debug.Log("UpdateAnchor");
-                CloudSpatialAnchor updatedAnchor = await UpdateAppPropertiesWhenObjectMoveAsync(currentMovingObject.transform);
-                bool success = updatedAnchor != null;
-                if (success)
+                try
                 {
-                    Debug.Log("UpdateSuccess!");
+                    CloudSpatialAnchor updatedAnchor = await CloudManager.UpdateAnchorInCloud(anchorToUpdate);
+                }
+                catch (Exception ex)
+                {
+                    QueueOnUpdate(new Action(() => Debug.LogException(ex)));
                 }
             });
+
         }
 
         int currentKeyCount = anchorExchanger.AnchorKeyCount;
@@ -103,6 +112,7 @@ public class ASATest : MonoBehaviour
                 dispatchQueue.Dequeue()();
             }
         }
+
     }
 
     private void OnManupulationUpdated(ManipulationUpdatedEventArgs obj)
@@ -115,12 +125,13 @@ public class ASATest : MonoBehaviour
     {
         Debug.Log("M-Starting");
         currentCumulativeDelta = Vector3.zero;
+        justReleased = false;
 
         Ray HeadRay = new Ray(obj.headPose.position, obj.headPose.forward);
         RaycastHit hit;
-        if (Physics.Raycast(HeadRay, out hit) )
+        if (Physics.Raycast(HeadRay, out hit))
         {
-            if ( hit.transform.tag == "Proto")
+            if (hit.transform.tag == "ChildProto")
             {
                 currentMovingObject = hit.transform.gameObject;
                 isHolding = true;
@@ -139,11 +150,11 @@ public class ASATest : MonoBehaviour
         Debug.Log("M-Ending");
         isHolding = false;
         currentMovingObject = null;
-        
+        justReleased = true;
     }
 
     private void OnManipulationCanceled(ManipulationCanceledEventArgs obj)
-    {  
+    {
         Debug.Log("M-Cancel");
         isHolding = false;
         currentMovingObject = null;
@@ -163,7 +174,7 @@ public class ASATest : MonoBehaviour
     {
         anchorExchanger = new AnchorExchanger();
         AnchorExchanger.OnFetchCompleted += AnchorExchanger_OnFetchCompleted;
-       
+
     }
 
     private void AnchorExchanger_OnFetchCompleted()
@@ -246,7 +257,7 @@ public class ASATest : MonoBehaviour
                 if (success)
                 {
                     anchorNumber = (await anchorExchanger.StoreAnchorKey(currentCloudAnchor.Identifier));
-                    QueueOnUpdate(() => 
+                    QueueOnUpdate(() =>
                     {
                         Debug.Log("SaveSuccess!");
 
@@ -269,7 +280,7 @@ public class ASATest : MonoBehaviour
                 }
             }
 
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 QueueOnUpdate(new Action(() => Debug.LogException(ex)));
             }
@@ -292,9 +303,11 @@ public class ASATest : MonoBehaviour
                 {
                     QueueOnUpdate(() =>
                     {
+                        Debug.Log("First Track, Already In Scene: " + args.Anchor.Identifier);
                         GameObject parent = localAnchorGameObjects[args.Anchor.Identifier];
 
                         int childCount = parent.transform.childCount;
+
                         Debug.Log("ChildCount: " + parent.transform.childCount.ToString());
 
                         for (int i = 0; i < childCount; i++)
@@ -307,13 +320,10 @@ public class ASATest : MonoBehaviour
                 // if this anchor is yet to be added to the local scene objects
                 else
                 {
-                    QueueOnUpdate(() => 
+                    QueueOnUpdate(() =>
                     {
-                        Debug.Log("Located: " + args.Anchor.Identifier);
+                        Debug.Log("First Track, Not In Scene: " + args.Anchor.Identifier);
                         GameObject anchorCube = Instantiate(anchorProto);
-                        anchorCube.GetInstanceID();
-
-
                         localAnchorGameObjects.Add(args.Anchor.Identifier, anchorCube);
                         localGameObjectsCloudAnchor.Add(anchorCube.GetInstanceID().ToString(), args.Anchor);
                         anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
@@ -321,22 +331,66 @@ public class ASATest : MonoBehaviour
                         anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
                         int id = 0;
                         if (args.Anchor.AppProperties.Count > 0)
-                            {
-                                GameObject child = Instantiate(protoObject, anchorCube.transform);
-                                MoveObjectUsingAppProperties(child.transform, args, id);
-                            }
+                        {
+                            GameObject child = Instantiate(protoObject, anchorCube.transform);
+                            MoveObjectUsingAppProperties(child.transform, args, id);
+                        }
                     });
                 }
-
                 break;
             case LocateAnchorStatus.AlreadyTracked:
-                Debug.Log("Already tracked! " + args.Anchor.Identifier);
+
+                // if this anchor has already been added to local scene objects
+                if (localAnchorGameObjects.ContainsKey(args.Anchor.Identifier))
+                {
+                    QueueOnUpdate(() =>
+                    {
+                        Debug.Log("Already Tracked, Already InScene: " + args.Anchor.Identifier);
+                        GameObject parent = localAnchorGameObjects[args.Anchor.Identifier];
+
+                        int childCount = parent.transform.childCount;
+
+                        Debug.Log("ChildCount: " + parent.transform.childCount.ToString());
+
+                        for (int i = 0; i < childCount; i++)
+                        {
+                            Transform child = parent.transform.GetChild(i);
+                            if (child.GetHashCode() != currentTransform.GetHashCode()) 
+                            {
+                                MoveObjectUsingAppProperties(child.transform, args, i);
+                            }
+                        }
+                    });
+                }
+                // if this anchor is yet to be added to the local scene objects
+                else
+                {
+                    QueueOnUpdate(() =>
+                    {
+                        Debug.Log("Already Tracked, Not InScene: " + args.Anchor.Identifier);
+                        GameObject anchorCube = Instantiate(anchorProto);
+                        anchorCube.GetInstanceID();
+                        localAnchorGameObjects.Add(args.Anchor.Identifier, anchorCube);
+                        localGameObjectsCloudAnchor.Add(anchorCube.GetInstanceID().ToString(), args.Anchor);
+                        anchorCube.GetComponent<MeshRenderer>().material.color = anchorColorPink;
+                        anchorCube.AddComponent<WorldAnchor>();
+                        anchorCube.GetComponent<WorldAnchor>().SetNativeSpatialAnchorPtr(args.Anchor.LocalAnchor);
+                        int id = 0;
+                        if (args.Anchor.AppProperties.Count > 0)
+                        {
+                            GameObject child = Instantiate(protoObject, anchorCube.transform);
+                            MoveObjectUsingAppProperties(child.transform, args, id);
+                        }
+                    });
+                }
                 break;
             case LocateAnchorStatus.NotLocated:
-                Debug.Log("notLocated");
                 break;
             case LocateAnchorStatus.NotLocatedAnchorDoesNotExist:
-                Debug.Log("NotExist");
+                QueueOnUpdate(() =>
+                {
+                    Debug.Log("NotExist! " + args.Anchor.Identifier);
+                });
                 break;
         }
     }
@@ -393,17 +447,43 @@ public class ASATest : MonoBehaviour
         return localCloudAnchor;
     }
 
-    private async Task<CloudSpatialAnchor> UpdateAppPropertiesWhenObjectMoveAsync(Transform obj)
+    private CloudSpatialAnchor UpdateAppPropertiesUsingTransform(Transform obj, CloudSpatialAnchor localCloudAnchor, int index)
+    {
+        string name = obj.tag;
+        string scaleX = obj.transform.localScale.x.ToString();
+        string scaleY = obj.transform.localScale.y.ToString();
+        string scaleZ = obj.transform.localScale.z.ToString();
+        string posX = obj.transform.localPosition.x.ToString();
+        string posY = obj.transform.localPosition.y.ToString();
+        string posZ = obj.transform.localPosition.z.ToString();
+        string rotX = obj.transform.localRotation.x.ToString();
+        string rotY = obj.transform.localRotation.y.ToString();
+        string rotZ = obj.transform.localRotation.z.ToString();
+        string rotW = obj.transform.localRotation.w.ToString();
+        localCloudAnchor.AppProperties[index.ToString() + "-name"] = name;
+        localCloudAnchor.AppProperties[index.ToString() + "-scaleX"] = scaleX;
+        localCloudAnchor.AppProperties[index.ToString() + "-scaleY"] = scaleY;
+        localCloudAnchor.AppProperties[index.ToString() + "-scaleZ"]= scaleZ;
+        localCloudAnchor.AppProperties[index.ToString() + "-posX"]= posX;
+        localCloudAnchor.AppProperties[index.ToString() + "-posY"]= posY;
+        localCloudAnchor.AppProperties[index.ToString() + "-posZ"]= posZ;
+        localCloudAnchor.AppProperties[index.ToString() + "-rotX"]= rotX;
+        localCloudAnchor.AppProperties[index.ToString() + "-rotY"] =rotY;
+        localCloudAnchor.AppProperties[index.ToString() + "-rotZ"]= rotZ;
+        localCloudAnchor.AppProperties[index.ToString() + "-rotW"]= rotW;
+
+
+        return localCloudAnchor;
+    }
+
+    private CloudSpatialAnchor UpdateAppPropertiesWhenObjectMoveAsync(Transform obj)
     {
         string key = obj.parent.gameObject.GetInstanceID().ToString();
         if (localGameObjectsCloudAnchor.ContainsKey(key))
         {
-
             CloudSpatialAnchor anchorToUpdate = localGameObjectsCloudAnchor[key];
-            anchorToUpdate = StoreAppPropertiesUsingTransform(obj, anchorToUpdate, obj.GetSiblingIndex());
-            CloudSpatialAnchor anchorUpdated = await CloudManager.UpdateAnchorInCloud(anchorToUpdate);
-            localGameObjectsCloudAnchor[key] = anchorUpdated;
-            return anchorUpdated;
+            anchorToUpdate = UpdateAppPropertiesUsingTransform(obj, anchorToUpdate, 0);
+            return anchorToUpdate;
         }
         else
         {
@@ -433,6 +513,12 @@ public class ASATest : MonoBehaviour
         }
     }
 
-
+    protected void QueueOnUpdateMove(Action updateAction)
+    {
+        lock (dispatchQueueMove)
+        {
+            dispatchQueueMove.Enqueue(updateAction);
+        }
+    }
 
 }

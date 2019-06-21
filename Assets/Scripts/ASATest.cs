@@ -25,6 +25,8 @@ public class ASATest : MonoBehaviour
     // local anchor storage dictionary
     private Dictionary<string, GameObject> localAnchorGameObjects = new Dictionary<string, GameObject>();
     private Dictionary<string, CloudSpatialAnchor> localGameObjectsCloudAnchor = new Dictionary<string, CloudSpatialAnchor>();
+    private Dictionary<string, bool> localAnchorSaved = new Dictionary<string, bool>();
+
 
     // Input Template
     public GameObject protoObject;
@@ -32,14 +34,12 @@ public class ASATest : MonoBehaviour
 
     // State
     private bool isHolding = false;
-    private bool justReleased = false;
+    private bool notInUpdateTask = true;
     private GameObject currentMovingObject;
     private Vector3 currentMovingVelocity = Vector3.zero;
     private Vector3 currentCumulativeDelta;
     private Vector3 lastCumulativeDelta;
     private int watchedAnchorKeys = -1;
-
-    private Transform currentTransform;
 
     // Tasks
     private readonly Queue<Action> dispatchQueue = new Queue<Action>();
@@ -77,25 +77,10 @@ public class ASATest : MonoBehaviour
 
     private void Update()
     {
-        if (isHolding == true && currentMovingObject != null)
+        if (isHolding == true && currentMovingObject != null )
         {
             currentMovingVelocity = currentCumulativeDelta - lastCumulativeDelta;
             currentMovingObject.transform.position = currentMovingObject.transform.position + currentMovingVelocity;
-            currentTransform = currentMovingObject.transform;
-            CloudSpatialAnchor anchorToUpdate = UpdateAppPropertiesWhenObjectMoveAsync(currentTransform);
-
-            Task.Run(async () =>
-            {
-                try
-                {
-                    CloudSpatialAnchor updatedAnchor = await CloudManager.UpdateAnchorInCloud(anchorToUpdate);
-                }
-                catch (Exception ex)
-                {
-                    QueueOnUpdate(new Action(() => Debug.LogException(ex)));
-                }
-            });
-
         }
 
         int currentKeyCount = anchorExchanger.AnchorKeyCount;
@@ -125,16 +110,19 @@ public class ASATest : MonoBehaviour
     {
         Debug.Log("M-Starting");
         currentCumulativeDelta = Vector3.zero;
-        justReleased = false;
 
         Ray HeadRay = new Ray(obj.headPose.position, obj.headPose.forward);
         RaycastHit hit;
         if (Physics.Raycast(HeadRay, out hit))
         {
-            if (hit.transform.tag == "ChildProto")
+            string key = hit.transform.parent.gameObject.GetInstanceID().ToString();
+            if (localAnchorSaved.ContainsKey(key)== true && localAnchorSaved[key] == true && notInUpdateTask == true)
             {
-                currentMovingObject = hit.transform.gameObject;
-                isHolding = true;
+                if (hit.transform.tag == "ChildProto")
+                {
+                    currentMovingObject = hit.transform.gameObject;
+                    isHolding = true;
+                }
             }
         }
 
@@ -149,8 +137,10 @@ public class ASATest : MonoBehaviour
     {
         Debug.Log("M-Ending");
         isHolding = false;
-        currentMovingObject = null;
-        justReleased = true;
+        if (currentMovingObject)
+        { 
+        ManipulationReleasedUpdateAnchorProperties();
+        }
     }
 
     private void OnManipulationCanceled(ManipulationCanceledEventArgs obj)
@@ -194,6 +184,7 @@ public class ASATest : MonoBehaviour
         Debug.Log("Updating Watcher...");
         CloudManager.StopActiveWatchers();
         CloudManager.SetAnchorIdsToLocate(anchorExchanger.AnchorKeys);
+        CloudManager.SetBypassCache(true);
         CloudManager.CreateWatcher();
         Debug.Log("Watcher Updated");
     }
@@ -227,6 +218,7 @@ public class ASATest : MonoBehaviour
         localCloudAnchor.Expiration = DateTimeOffset.Now.AddDays(2);
         Debug.Log(CloudManager.EnoughDataToCreate);
 
+
         currentCloudAnchor = null;
 
         Task.Run(async () =>
@@ -250,6 +242,7 @@ public class ASATest : MonoBehaviour
             try
             {
                 QueueOnUpdate(new Action(() => Debug.Log("Saving...")));
+                notInUpdateTask = false;
                 currentCloudAnchor = await CloudManager.StoreAnchorInCloud(localCloudAnchor);
                 success = currentCloudAnchor != null;
                 long anchorNumber = -1;
@@ -257,6 +250,8 @@ public class ASATest : MonoBehaviour
                 if (success)
                 {
                     anchorNumber = (await anchorExchanger.StoreAnchorKey(currentCloudAnchor.Identifier));
+                    notInUpdateTask = true;
+
                     QueueOnUpdate(() =>
                     {
                         Debug.Log("SaveSuccess!");
@@ -267,6 +262,7 @@ public class ASATest : MonoBehaviour
                         Debug.Log(currentCloudAnchor.Identifier);
                         Debug.Log("anchorNumber: " + anchorNumber.ToString());
                         anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPink;
+                        localAnchorSaved.Add(anchorCopy.GetInstanceID().ToString(), true);
                     });
                 }
                 else
@@ -274,6 +270,7 @@ public class ASATest : MonoBehaviour
                     QueueOnUpdate(() =>
                    {
                        Debug.Log("SaveFailed!");
+                       localAnchorSaved.Add(anchorCopy.GetInstanceID().ToString(), false);
                        anchorCopy.GetComponent<MeshRenderer>().material.color = anchorColorPurple;
 
                    });
@@ -287,6 +284,38 @@ public class ASATest : MonoBehaviour
 
         });
     }
+
+    public void ManipulationReleasedUpdateAnchorProperties()
+    {
+        Transform current = currentMovingObject.transform;
+        currentMovingObject.GetComponent<MeshRenderer>().material.color = anchorColorYellow;
+        CloudSpatialAnchor anchorToUpdate = UpdateAppPropertiesWhenObjectMove(current);
+
+        if (anchorToUpdate != null)
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    notInUpdateTask = false;
+                    CloudSpatialAnchor updatedAnchor = await CloudManager.UpdateAnchorInCloud(anchorToUpdate);
+                    QueueOnUpdate(() =>
+                    {
+                        current.gameObject.GetComponent<MeshRenderer>().material.color = protoObject.GetComponent<MeshRenderer>().material.color;
+                    });
+                    notInUpdateTask = true;
+                }
+                catch (Exception ex)
+                {
+                    QueueOnUpdate(new Action(() => Debug.LogException(ex)));
+                }
+            });
+        }
+
+        currentMovingObject = null;
+
+    }
+
 
     private void CloudManager_SessionUpdated(object sender, SessionUpdatedEventArgs args)
     {
@@ -335,6 +364,8 @@ public class ASATest : MonoBehaviour
                             GameObject child = Instantiate(protoObject, anchorCube.transform);
                             MoveObjectUsingAppProperties(child.transform, args, id);
                         }
+                        localAnchorSaved.Add(anchorCube.GetInstanceID().ToString(), true);
+
                     });
                 }
                 break;
@@ -354,11 +385,15 @@ public class ASATest : MonoBehaviour
 
                         for (int i = 0; i < childCount; i++)
                         {
+                            Debug.Log("In Loop");
                             Transform child = parent.transform.GetChild(i);
-                            if (child.GetHashCode() != currentTransform.GetHashCode()) 
+                            Debug.Log("Child:" + child.ToString());
+                            Debug.Log("Child HashCode： " + child.GetHashCode().ToString());
+                            if (currentMovingObject == null || child.GetHashCode() != currentMovingObject.transform.GetHashCode()) 
                             {
                                 MoveObjectUsingAppProperties(child.transform, args, i);
                             }
+                            Debug.Log("After Loop");
                         }
                     });
                 }
@@ -476,7 +511,7 @@ public class ASATest : MonoBehaviour
         return localCloudAnchor;
     }
 
-    private CloudSpatialAnchor UpdateAppPropertiesWhenObjectMoveAsync(Transform obj)
+    private CloudSpatialAnchor UpdateAppPropertiesWhenObjectMove(Transform obj)
     {
         string key = obj.parent.gameObject.GetInstanceID().ToString();
         if (localGameObjectsCloudAnchor.ContainsKey(key))
